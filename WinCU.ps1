@@ -156,19 +156,91 @@ function Invoke-Reboot {
 # Funciones
 # =========================
 
+function Invoke-SystemRevert {
+  $needsReboot = $false
+
+  Write-LogMessage -Type info -Message 'Iniciando protocolo de reversión del sistema...'
+
+  # =========================
+  # MPO (DWM)
+  # =========================
+  Write-LogMessage -Type info -Message 'Restaurando configuración DWM (MPO)...'
+
+  $mpoKey = 'HKLM:\SOFTWARE\Microsoft\Windows\Dwm'
+
+  if (Test-Path $mpoKey) {
+    try {
+      Remove-ItemProperty -Path $mpoKey -Name 'OverlayTestMode' -ErrorAction Stop
+      Write-LogMessage -Type success -Message 'MPO restaurado a valores por defecto.'
+      $needsReboot = $true
+    }
+    catch {
+      Write-LogMessage -Type info -Message 'No se encontró OverlayTestMode o ya estaba en default.'
+    }
+  }
+
+  # =========================
+  # BCD TIMERS
+  # =========================
+  Write-LogMessage -Type info -Message 'Limpiando BCD Timers...'
+
+  function Remove-BcdValue {
+    param (
+      [string]$Value,
+      [string]$Label
+    )
+
+    bcdedit /deletevalue $Value 2>$null | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+      Write-LogMessage -Type success -Message $Label
+      $script:needsReboot = $true
+    }
+  }
+
+  Remove-BcdValue -Value 'useplatformtick'    -Label 'PlatformTick eliminado (Default).'
+  Remove-BcdValue -Value 'disabledynamictick' -Label 'DynamicTick restaurado.'
+  Remove-BcdValue -Value 'tscsyncpolicy'      -Label 'TSCSyncPolicy restaurado.'
+
+  # =========================
+  # MEMORY MANAGEMENT
+  # =========================
+  Write-LogMessage -Type info -Message 'Restaurando Memory Management...'
+
+  $mmKey = 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management'
+
+  try {
+    New-ItemProperty `
+      -Path $mmKey `
+      -Name 'DisablePagingExecutive' `
+      -PropertyType DWord `
+      -Value 0 `
+      -Force | Out-Null
+
+    Write-LogMessage -Type success -Message 'Paging Executive reactivado (Default = 0).'
+    $needsReboot = $true
+  }
+  catch {
+    Write-LogMessage -Type error -Message 'Error restaurando Memory Management.'
+  }
+
+  Start-Sleep 1
+  Invoke-Reboot -NeedsReboot $needsReboot
+}
+
 function Remove-CopilotGameBar {
   $needsReboot = $false
   # =========================
   # Xbox Game Bar (opcional)
   # =========================
-  Write-LogMessage -Type question -Message (
-    "Quieres eliminar tambien la XBOX GAME BAR? ",
-    "(s/n)"
+  Write-LogMessage -Type question -Message @(
+    'Quieres eliminar tambien la XBOX GAME BAR ',
+    '[S,N]? '
   )
 
-  $removeGameBar = Read-Host
+  cmd /c choice /c SN /n > $null
+  $removeGameBar = $LASTEXITCODE
 
-  if ($removeGameBar -eq 'y') {
+  if ($removeGameBar -eq 1) {
     Write-LogMessage -Type info -Message "Matando procesos de Game Bar..."
 
     taskkill /f /im GameBar.exe 2>$null
@@ -181,6 +253,9 @@ function Remove-CopilotGameBar {
     Get-AppxPackage XboxGamingOverlay |
     Reset-AppxPackage -ErrorAction SilentlyContinue
 
+    reg add HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\GameDVR /v AppCaptureEnabled /t REG_DWORD /d 0 /f  | Out-Null
+    reg add HKEY_CURRENT_USER\System\GameConfigStore /v GameDVR_Enabled /t REG_DWORD /d 0 /f | Out-Null
+
     $needsReboot = $true
   }
 
@@ -191,9 +266,7 @@ function Remove-CopilotGameBar {
 
   try {
     Get-AppxPackage -AllUsers Microsoft.Windows.Ai.Copilot.Provider | Remove-AppxPackage -ErrorAction Stop
-
     Write-LogMessage -Type success -Message "Copilot Provider eliminado."
-
     $needsReboot = $true
   }
   catch {
@@ -217,9 +290,6 @@ function Remove-CopilotGameBar {
 
   reg add HKCU\Software\Policies\Microsoft\Windows\WindowsCopilot /v TurnOffWindowsCopilot /t REG_DWORD /d 1 /f | Out-Null
   reg add HKLM\Software\Policies\Microsoft\Windows\WindowsCopilot /v TurnOffWindowsCopilot /t REG_DWORD /d 1 /f | Out-Null
-
-  reg add HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\GameDVR /v AppCaptureEnabled /t REG_DWORD /d 0 /f  | Out-Null
-  reg add HKEY_CURRENT_USER\System\GameConfigStore /v GameDVR_Enabled /t REG_DWORD /d 0 /f | Out-Null
 
   Write-LogMessage -Type success -Message "Proceso terminado"
 
@@ -275,6 +345,7 @@ function Set-ScriptMain {
     Write-Color ' 0', ' - ', 'Salir' -Color Yellow, White, Green
     Write-Color ' 1', ' - ', 'Eliminar Copilot (OPCIONAL GAMEBAR)' -Color Yellow, White, Green
     Write-Color ' 2', ' - ', 'GPU Cleaner' -Color Yellow, White, Green
+    Write-Color ' 3', ' - ', 'Revertir Timers / MPO / Memory (DEFAULT)' -Color Yellow, White, Green
     Write-Color $line -Color Yellow
 
     $inputData = Read-Host 'Selecciona una opcion'
@@ -286,6 +357,7 @@ function Set-ScriptMain {
       }
       '1' { Remove-CopilotGameBar }
       '2' { Invoke-GpuCacheCleanup }
+      '3' { Invoke-SystemRevert }
       default {
         Write-Color 'Opción ', "$inputData", ' inválida.' -Color Red, Yellow, Red -LinesBefore 1
         [void][System.Console]::ReadKey($true)
