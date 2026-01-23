@@ -381,6 +381,7 @@ function Invoke-GpuCacheCleanup {
 # =========================
 
 $AuthorLink = $window.FindName("AuthorLink")
+# $RepoLink = $window.FindName("RepoLink")
 $BtnRun = $window.FindName("BtnRun")
 $CmbActions = $window.FindName("CmbActions")
 $ChkGameBar = $window.FindName("ChkGameBar")
@@ -396,6 +397,16 @@ $AuthorLink.Add_RequestNavigate({
       $e.Handled = $true
     }
   })
+<#
+$RepoLink.Add_RequestNavigate({
+  param($senderLink, $e)
+
+  if ($e.Uri) {
+    Start-Process $e.Uri.AbsoluteUri
+    $e.Handled = $true
+  }
+})
+#>
 
 # Evento: Cambio de selección en el ComboBox
 # Write-Host $CmbActions
