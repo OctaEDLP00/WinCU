@@ -22,7 +22,7 @@ if %errorLevel% neq 0 (
   exit /b
 )
 
-:: 2. PREPARAR EL SCRIPT H�BRIDO
+:: 2. PREPARAR EL SCRIPT HíBRIDO
 :: echo [INFO] CARGANDO MODULO POWERSHELL...
 set "PS_SCRIPT=%temp%\temp_script_%random%.ps1"
 copy /y "%~f0" "%PS_SCRIPT%" >nul
